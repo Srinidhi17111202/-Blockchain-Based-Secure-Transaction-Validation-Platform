@@ -9,10 +9,6 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ ./backend/
 COPY dist/ ./dist/
 
-# Copy sample data files into app root if present
-COPY sample_gstr2b.json* sample_fraud_gstr2b.json* sample_fraud_pr.csv* fake_gstin_dataset.csv* fake_gstin_dataset.json* ./
-COPY backend/sample_gstr2b.json* backend/sample_fraud_gstr2b.json* backend/sample_fraud_pr.csv* backend/fake_gstin_dataset.csv* backend/fake_gstin_dataset.json* ./
-
 # Set environment variables
 ENV PORT=8000
 ENV PYTHONUNBUFFERED=1

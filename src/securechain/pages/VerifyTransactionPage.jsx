@@ -340,14 +340,6 @@ export default function VerifyTransactionPage() {
     blockchain_integrity: isSuccess,
   };
 
-  // Mock Merkle leaf hashes for visualizer
-  const merkleLeaves = [
-    details.payload_hash || details.recorded_hash || '0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069',
-    '0x3d7a9b0c1e82f458129a6e38cdb927e1084f7281bc92a83e01293c4d5e6f7a8b',
-    '0xa1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
-    '0x0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba',
-  ];
-
   return (
     <div className="min-h-screen bg-[#FAF9F5] text-[#141413] font-sans antialiased selection:bg-[#D97757]/20 selection:text-[#141413]">
       {/* ── Top Header Navigation ── */}

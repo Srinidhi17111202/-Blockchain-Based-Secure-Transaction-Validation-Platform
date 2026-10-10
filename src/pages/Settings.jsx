@@ -75,29 +75,6 @@ export default function Settings() {
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [pingStatus, setPingStatus] = useState(null);
 
-  // Mock API Keys
-  const [apiKeys, setApiKeys] = useState([
-    {
-      id: 'key_01',
-      name: 'Production ERP Ledger Sync',
-      prefix: 'sc_live_9a4f...',
-      role: 'Full Read/Write',
-      created: '2026-09-15',
-      lastUsed: 'Just now',
-    },
-    {
-      id: 'key_02',
-      name: 'Automated CI/CD Test Pipeline',
-      prefix: 'sc_test_3b81...',
-      role: 'Audit & Query Only',
-      created: '2026-10-01',
-      lastUsed: '2 hours ago',
-    },
-  ]);
-
-  const [newKeyName, setNewKeyName] = useState('');
-  const [showNewKeyModal, setShowNewKeyModal] = useState(false);
-
   const handleFieldChange = (field, value) => {
     setSettings((prev) => ({
       ...prev,

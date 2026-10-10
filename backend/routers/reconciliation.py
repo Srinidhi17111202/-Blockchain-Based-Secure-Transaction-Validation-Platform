@@ -31,6 +31,35 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+VALID_GSTIN_STATE_CODES = {
+    "01", "02", "03", "04", "05", "06", "07", "08", "09", "10",
+    "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+    "21", "22", "23", "24", "25", "26", "27", "28", "29", "30",
+    "31", "32", "33", "34", "35", "36", "37", "38", "97"
+}
+GSTIN_REGEX = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$")
+
+
+def validate_indian_gstin(gstin: str) -> str:
+    """
+    Validates a GSTIN against the official Indian GST standard.
+    Returns an error description if invalid, or an empty string if fully valid.
+    """
+    g = str(gstin or "").strip().upper()
+    if not g:
+        return "Missing GSTIN"
+    if len(g) != 15:
+        return f"Invalid GSTIN length ({len(g)} chars): Indian GSTIN must be exactly 15 characters"
+    state_code = g[:2]
+    if state_code not in VALID_GSTIN_STATE_CODES:
+        return f"Invalid GSTIN state code '{state_code}': Must be a valid Indian State/UT code (01-38 or 97)"
+    if g[13] != "Z":
+        return f"Invalid GSTIN structure: 14th character must be 'Z' as per GST standard (found '{g[13]}')"
+    if not GSTIN_REGEX.match(g):
+        return "Invalid GSTIN format: Must follow official 15-character GST standard (e.g. 27ABCDE1234F1Z5)"
+    return ""
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Parsing helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -293,8 +322,8 @@ async def check_gstins_in_s3_reference(gstins: list[str], user_email: str) -> di
             if "Contents" in response:
                 for obj in response["Contents"]:
                     key = obj["Key"]
-                    # If filename contains 'fake_gstin' or 'reference' or 'fraud' and is CSV/JSON
-                    if any(term in key.lower() for term in ["fake_gstin", "fraud_ref", "reference"]) and key.endswith((".json", ".csv")):
+                    # If filename contains 'fraud_ref', 'risk_registry', 'tax_evader' or 'reference' and is CSV/JSON
+                    if any(term in key.lower() for term in ["fraud_ref", "reference", "risk_registry", "tax_evader", "cancelled_gstin"]) and key.endswith((".json", ".csv")):
                         print(f"Found reference file in S3: {key}")
                         file_response = s3.get_object(Bucket=AWS_S3_BUCKET, Key=key)
                         content = file_response["Body"].read()
@@ -318,36 +347,15 @@ async def check_gstins_in_s3_reference(gstins: list[str], user_email: str) -> di
         except Exception as s3_err:
             print(f"Error listing/reading S3 reference files: {s3_err}")
 
-    # Local Fallback
-    local_reference_data = []
-    candidates = [
-        os.path.join(os.path.dirname(__file__), "..", "..", "fake_gstin_dataset.json"),
-        os.path.join(os.path.dirname(__file__), "..", "fake_gstin_dataset.json"),
-        os.path.join(os.path.dirname(__file__), "fake_gstin_dataset.json"),
-        "/app/fake_gstin_dataset.json",
-        "/app/backend/fake_gstin_dataset.json",
-        "fake_gstin_dataset.json",
-    ]
-    local_path = next((p for p in candidates if os.path.exists(p)), None)
-    if local_path:
-        try:
-            with open(local_path, "r", encoding="utf-8") as f:
-                local_reference_data = json.load(f)
-                print(f"Loaded {len(local_reference_data)} records from local reference dataset ({local_path})")
-        except Exception as local_err:
-            print(f"Error loading local reference dataset: {local_err}")
-
-    all_refs = s3_reference_data if s3_reference_data else local_reference_data
-
     ref_lookup = {}
-    for ref in all_refs:
+    for ref in s3_reference_data:
         gstin_val = (ref.get("gstin") or ref.get("GSTIN") or "").strip().upper()
         if gstin_val:
             ref_lookup[gstin_val] = {
-                "supplier": ref.get("supplier") or ref.get("supplier name") or ref.get("name") or "Unknown Entity",
+                "supplier": ref.get("supplier") or ref.get("supplier name") or ref.get("name") or "Flagged Supplier",
                 "riskScore": int(ref.get("riskScore") or ref.get("score") or 90),
-                "fraudType": ref.get("fraudType") or ref.get("reason") or "Flagged in reference dataset",
-                "source": "S3 Reference" if s3_reference_data else "Local Reference"
+                "fraudType": ref.get("fraudType") or ref.get("reason") or "Flagged in risk reference registry",
+                "source": "S3 Reference Registry"
             }
 
     for g in gstins:
@@ -555,14 +563,7 @@ def run_matching_engine(
         return str(date_str).strip().upper()
 
     def check_gstin_fraud(gstin: str) -> str:
-        g = str(gstin).strip().upper()
-        if not g:
-            return "Missing GSTIN"
-        if len(g) < 14 or len(g) > 15:
-            return "Invalid GSTIN format (length must be 14 or 15 characters)"
-        if any(p in g for p in ["FAKE", "ERR", "DUPL", "MISM", "ZZZZZ", "XXXXX", "QQQQQ", "YYYYY", "WWWWW"]):
-            return "Invalid GSTIN format (suspicious pattern)"
-        return ""
+        return validate_indian_gstin(gstin)
 
     # Build genuine prefixes from all uploaded and reference dataset invoices
     genuine_prefixes = set()
@@ -1050,70 +1051,10 @@ async def _run_reconciliation_impl(request: Request):  # noqa: C901
         }
 
     if not g2b_doc:
-        # Auto-seed GSTR-2B from local sample for any user who hasn't uploaded one
-        script_dir = os.path.dirname(__file__)
-        cwd = os.getcwd()
-        candidates = [
-            os.path.join(cwd, "sample_gstr2b.json"),
-            os.path.join(cwd, "backend", "sample_gstr2b.json"),
-            os.path.join(script_dir, "..", "..", "sample_gstr2b.json"),
-            os.path.join(script_dir, "..", "sample_gstr2b.json"),
-            os.path.join(script_dir, "sample_gstr2b.json"),
-            os.path.join(cwd, "sample_fraud_gstr2b.json"),
-            os.path.join(cwd, "backend", "sample_fraud_gstr2b.json"),
-            "/app/sample_gstr2b.json",
-            "/app/backend/sample_gstr2b.json",
-        ]
-        local_sample = next((p for p in candidates if os.path.exists(p)), None)
-        if local_sample:
-            try:
-                with open(local_sample, "rb") as sf:
-                    content = sf.read()
-                invoices = parse_gstr2b_json(content)
-                if invoices:
-                    g2b_doc = {
-                        "user_email": user_email,
-                        "type":      "gstr2b",
-                        "filename":  os.path.basename(local_sample),
-                        "records":   invoices,
-                        "count":     len(invoices),
-                        "size":      len(content),
-                        "uploaded_at": utcnow(),
-                    }
-                    await uploads_col.update_one(
-                        {"type": "gstr2b", "user_email": user_email},
-                        {"$set": g2b_doc},
-                        upsert=True
-                    )
-                    print(f"Auto-seeded GSTR-2B for {user_email} from {local_sample}")
-            except Exception as seed_err:
-                print(f"Failed to auto-seed GSTR-2B from file: {seed_err}")
-
-        # Secondary fallback: borrow records from ANY existing gstr2b upload in uploads_col
-        if not g2b_doc:
-            try:
-                any_g2b = await uploads_col.find_one({"type": "gstr2b"})
-                if any_g2b and any_g2b.get("records"):
-                    g2b_doc = {
-                        "user_email": user_email,
-                        "type":      "gstr2b",
-                        "filename":  any_g2b.get("filename", "sample_gstr2b.json"),
-                        "records":   any_g2b.get("records", []),
-                        "count":     len(any_g2b.get("records", [])),
-                        "size":      any_g2b.get("size", 0),
-                        "uploaded_at": utcnow(),
-                    }
-                    await uploads_col.update_one(
-                        {"type": "gstr2b", "user_email": user_email},
-                        {"$set": g2b_doc},
-                        upsert=True
-                    )
-                    print(f"Auto-seeded GSTR-2B for {user_email} from existing uploads_col store")
-            except Exception as db_seed_err:
-                print(f"Failed secondary auto-seed from uploads_col: {db_seed_err}")
-
-        if not g2b_doc:
-            raise HTTPException(status_code=400, detail="Data not uploaded. Please upload a GSTR-2B or Purchase Register file on the Upload page first.")
+        raise HTTPException(
+            status_code=400,
+            detail="GSTR-2B or Purchase Register file not uploaded. Please upload your files on the Upload page first."
+        )
 
     # Download and parse GSTR-2B on-the-fly from S3 if available, falling back to DB records
     g2b_invoices = None

@@ -106,54 +106,6 @@ async def seed_database():
         else:
             print(f"  [=] User already exists: {user['email']}")
 
-    # 3. Seed Sample Reconciliation Runs & Uploads for Demo Data
-    print("\n[*] Seeding Sample Reconciliation & Upload Data into MongoDB...")
-    
-    demo_email = "demo@gstrecon.com"
-    sample_run_id = "run_demo_20260723_001"
-    
-    run_doc = {
-        "run_id": sample_run_id,
-        "user_email": demo_email,
-        "run_at": now.isoformat(),
-        "total_records": 150,
-        "matched_count": 118,
-        "mismatched_count": 22,
-        "fraud_flagged_count": 10,
-        "status": "COMPLETED",
-        "summary": {
-            "matched": 118,
-            "partial": 12,
-            "missing_in_gstr2b": 10,
-            "missing_in_pr": 5,
-            "fraud": 5
-        }
-    }
-    
-    await db.reconciliation_runs.update_one(
-        {"run_id": sample_run_id},
-        {"$set": run_doc},
-        upsert=True
-    )
-    print(f"  [+] Seeded sample reconciliation run: {sample_run_id}")
-
-    sample_upload = {
-        "upload_id": "up_demo_001",
-        "user_email": demo_email,
-        "filename": "GSTR2B_July2026.json",
-        "file_type": "GSTR2B",
-        "records_count": 150,
-        "status": "PROCESSED",
-        "upload_date": now.isoformat()
-    }
-
-    await db.uploads.update_one(
-        {"upload_id": "up_demo_001"},
-        {"$set": sample_upload},
-        upsert=True
-    )
-    print("  [+] Seeded sample file upload record into MongoDB")
-
     client.close()
     print("\n" + "=" * 65)
     print("[SUCCESS] MongoDB database indexing and data seeding complete!")
